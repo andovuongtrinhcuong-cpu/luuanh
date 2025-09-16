@@ -2,6 +2,10 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { createRoot } from 'react-dom/client';
 
 const IMAGES_PER_PAGE = 15;
+const TOKEN_STORAGE_KEY = 'github_pat';
+const GITHUB_REPO = 'andovuongtrinhcuong-cpu/luuanh';
+const GITHUB_API_BASE = `https://api.github.com/repos/${GITHUB_REPO}`;
+const GITHUB_BRANCH = 'main';
 
 // --- Utility Functions ---
 const sanitizeFolderName = (name: string): string => {
@@ -22,37 +26,33 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
-// --- API Helper for Netlify Functions ---
-const api = {
-    async request(method: string, githubPath: string, token: string, body?: any) {
-        const response = await fetch('/.netlify/functions/api', {
-            method: 'POST',
+// --- GitHub API Helper ---
+const githubApi = {
+    async request(method: string, path: string, token: string, body?: any) {
+        const response = await fetch(`${GITHUB_API_BASE}${path}`, {
+            method,
             headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json',
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
             },
-            body: JSON.stringify({
-                method,
-                githubPath,
-                body,
-            }),
+            body: body ? JSON.stringify(body) : undefined,
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ message: response.statusText }));
-            throw new Error(`API Error: ${errorData.message}`);
+            throw new Error(`GitHub API Error: ${errorData.message}`);
         }
-        
+
         if (response.status === 204) {
             return null;
         }
 
         return response.json();
     }
-}
+};
 
 // --- React Components ---
-
 const Notification = ({ message, type, onEnd }: { message: string | null; type: 'success' | 'error'; onEnd: () => void }) => {
     const [visible, setVisible] = useState(false);
 
@@ -74,33 +74,25 @@ const Notification = ({ message, type, onEnd }: { message: string | null; type: 
     );
 };
 
-const Login = ({ onLogin, loginError }: { onLogin: (user: string, pass: string) => void; loginError: string | null; }) => {
-    const [user, setUser] = useState('');
-    const [pass, setPass] = useState('');
+const Login = ({ onLogin, loginError }: { onLogin: (token: string) => void; loginError: string | null; }) => {
+    const [token, setToken] = useState('');
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onLogin(user.trim(), pass.trim());
+        onLogin(token.trim());
     };
 
     return (
         <div className="login-container">
             <form onSubmit={handleSubmit} className="login-form">
-                <h2>Đăng nhập</h2>
-                <input
-                    type="text"
-                    value={user}
-                    onChange={e => setUser(e.target.value)}
-                    placeholder="Tên đăng nhập"
-                    aria-label="Tên đăng nhập"
-                    required
-                />
+                <h2>Đăng nhập GitHub</h2>
+                <p style={{marginBottom: '1rem', fontSize: '0.9rem', color: '#ccc'}}>Sử dụng Personal Access Token (classic) với quyền `repo` để đăng nhập.</p>
                 <input
                     type="password"
-                    value={pass}
-                    onChange={e => setPass(e.target.value)}
-                    placeholder="Mật khẩu"
-                    aria-label="Mật khẩu"
+                    value={token}
+                    onChange={e => setToken(e.target.value)}
+                    placeholder="GitHub Personal Access Token"
+                    aria-label="GitHub Personal Access Token"
                     required
                 />
                 <button type="submit">Đăng nhập</button>
@@ -109,7 +101,6 @@ const Login = ({ onLogin, loginError }: { onLogin: (user: string, pass: string) 
         </div>
     );
 };
-
 
 const Uploader = ({ activeFolder, onImageUpload }: { activeFolder: string; onImageUpload: (files: FileList) => void }) => {
     const [isDragging, setIsDragging] = useState(false);
@@ -225,9 +216,8 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children }: {
 };
 
 const App = () => {
+    const [githubToken, setGithubToken] = useState<string | null>(null);
     const [loginError, setLoginError] = useState<string | null>(null);
-    const [credentials, setCredentials] = useState<string | null>(null);
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
 
     const [folders, setFolders] = useState<string[]>([]);
     const [images, setImages] = useState<any[]>([]);
@@ -248,58 +238,55 @@ const App = () => {
     const [folderToDelete, setFolderToDelete] = useState<string | null>(null);
     const renameInputRef = useRef<HTMLInputElement>(null);
 
-    const handleLogin = useCallback(async (user: string, pass: string) => {
+    const handleLogin = useCallback(async (token: string) => {
         setIsLoading(true);
         setLoginError(null);
         try {
-            const response = await fetch('/.netlify/functions/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user, pass }),
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ message: 'Đăng nhập thất bại.' }));
-                throw new Error(errorData.message);
-            }
-
-            const { token } = await response.json();
-            
-            setCredentials(token);
-            setIsLoggedIn(true);
-            sessionStorage.setItem('app_token', token);
+            await githubApi.request('GET', '/', token); // Verify token by pinging repo root
+            setGithubToken(token);
+            const expiresAt = new Date().getTime() + 30 * 24 * 60 * 60 * 1000; // 30 days
+            localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify({ token, expiresAt }));
         } catch (error) {
-            sessionStorage.removeItem('app_token');
-            setLoginError(`Đăng nhập thất bại: ${(error as Error).message}.`);
-            setCredentials(null);
-            setIsLoggedIn(false);
+            setLoginError(`Đăng nhập thất bại: Token không hợp lệ hoặc thiếu quyền. ${(error as Error).message}.`);
+            setGithubToken(null);
+            localStorage.removeItem(TOKEN_STORAGE_KEY);
         } finally {
             setIsLoading(false);
         }
     }, []);
-    
-    useEffect(() => {
-        const savedToken = sessionStorage.getItem('app_token');
 
-        const verifyAndLogin = async (token: string) => {
-            setIsLoading(true);
+    const handleLogout = useCallback(() => {
+        setGithubToken(null);
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
+        setFolders([]);
+        setImages([]);
+        setActiveFolder(null);
+    }, []);
+
+    useEffect(() => {
+        let isMounted = true;
+        const verifyStoredToken = async () => {
             try {
-                await api.request('GET', '/contents/', token);
-                setCredentials(token);
-                setIsLoggedIn(true);
+                const stored = localStorage.getItem(TOKEN_STORAGE_KEY);
+                if (stored) {
+                    const { token, expiresAt } = JSON.parse(stored);
+                    if (new Date().getTime() < expiresAt) {
+                        await githubApi.request('GET', '/', token); // Verify token
+                        if(isMounted) setGithubToken(token);
+                    } else {
+                        localStorage.removeItem(TOKEN_STORAGE_KEY);
+                    }
+                }
             } catch (error) {
-                sessionStorage.removeItem('app_token');
                 console.error("Token verification failed", error);
+                localStorage.removeItem(TOKEN_STORAGE_KEY);
             } finally {
-                setIsLoading(false);
+                if (isMounted) setIsLoading(false);
             }
         };
 
-        if (savedToken) {
-            verifyAndLogin(savedToken);
-        } else {
-            setIsLoading(false);
-        }
+        verifyStoredToken();
+        return () => { isMounted = false; }
     }, []);
 
     useEffect(() => {
@@ -315,10 +302,10 @@ const App = () => {
     };
 
     const loadFolders = useCallback(async () => {
-        if (!credentials) return;
+        if (!githubToken) return;
         setIsLoading(true);
         try {
-            const contents = await api.request('GET', '/contents/', credentials);
+            const contents = await githubApi.request('GET', '/contents/', githubToken);
             const folderData = contents.filter((item: any) => item.type === 'dir').map((item: any) => item.name);
             setFolders(folderData);
             if (folderData.length > 0 && !activeFolder) {
@@ -328,31 +315,32 @@ const App = () => {
             }
         } catch (error) {
             showNotification(`Lỗi tải thư mục: ${(error as Error).message}`, 'error');
+            if((error as Error).message.includes('401')) handleLogout();
         } finally {
             setIsLoading(false);
         }
-    }, [credentials, activeFolder]);
+    }, [githubToken, activeFolder, handleLogout]);
     
     useEffect(() => {
-        if (isLoggedIn) {
+        if (githubToken) {
             loadFolders();
         }
-    }, [isLoggedIn, loadFolders]);
+    }, [githubToken, loadFolders]);
 
     const loadImagesForFolder = useCallback(async (folderName: string) => {
-        if (!credentials) return;
+        if (!githubToken) return;
         setIsLoading(true);
         setCurrentPage(1);
         setImages([]);
         setSearchQuery('');
         try {
-            const contents = await api.request('GET', `/contents/${folderName}`, credentials);
+            const contents = await githubApi.request('GET', `/contents/${folderName}`, githubToken);
             const imageData = contents.filter((item: any) => item.type === 'file' && /\.(jpg|jpeg|png|gif|webp)$/i.test(item.name));
-
+            
             const imagesWithDates = await Promise.all(
                 imageData.map(async (image: any) => {
                     try {
-                        const commits = await api.request('GET', `/commits?path=${image.path}&per_page=1`, credentials);
+                        const commits = await githubApi.request('GET', `/commits?path=${image.path}&per_page=1`, githubToken);
                         const commitDate = commits[0]?.commit?.author?.date;
                         return { ...image, commitDate: commitDate || new Date(0).toISOString() };
                     } catch (error) {
@@ -368,7 +356,7 @@ const App = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [credentials]);
+    }, [githubToken]);
 
     const filteredAndSortedImages = useMemo(() => {
         const filtered = images.filter(image => 
@@ -405,7 +393,7 @@ const App = () => {
         const form = e.currentTarget;
         const input = form.elements.namedItem('folderName') as HTMLInputElement;
         const folderName = input.value.trim();
-        if (!credentials || !folderName) return;
+        if (!githubToken || !folderName) return;
 
         const sanitized = sanitizeFolderName(folderName);
         if (folders.includes(sanitized)) {
@@ -414,9 +402,10 @@ const App = () => {
         }
 
         try {
-            await api.request('PUT', `/contents/${sanitized}/.gitkeep`, credentials, {
+            await githubApi.request('PUT', `/contents/${sanitized}/.gitkeep`, githubToken, {
                 message: `feat: Create folder '${sanitized}'`,
-                content: ''
+                content: '',
+                branch: GITHUB_BRANCH,
             });
             showNotification(`Thư mục "${sanitized}" đã được tạo.`, 'success');
             setFolders([...folders, sanitized].sort());
@@ -428,18 +417,19 @@ const App = () => {
     };
     
     const handleConfirmDeleteFolder = async () => {
-        if (!credentials || !folderToDelete) return;
+        if (!githubToken || !folderToDelete) return;
 
         const folderName = folderToDelete;
         setFolderToDelete(null);
         setIsLoading(true);
 
         try {
-            const files = await api.request('GET', `/contents/${folderName}`, credentials);
+            const files = await githubApi.request('GET', `/contents/${folderName}`, githubToken);
             for (const file of files) {
-                await api.request('DELETE', `/contents/${file.path}`, credentials, {
+                await githubApi.request('DELETE', `/contents/${file.path}`, githubToken, {
                     message: `feat: Delete image ${file.name}`,
                     sha: file.sha,
+                    branch: GITHUB_BRANCH,
                 });
             }
             showNotification(`Đã xóa thư mục: ${folderName}`, 'success');
@@ -499,18 +489,18 @@ const App = () => {
     };
     
     const renameFolderOnGitHub = async (oldName: string, newName: string) => {
-        if (!credentials) return;
+        if (!githubToken) return;
         setIsLoading(true);
         try {
-            const filesToMove = await api.request('GET', `/contents/${oldName}`, credentials);
+            const filesToMove = await githubApi.request('GET', `/contents/${oldName}`, githubToken);
 
             if (!filesToMove || filesToMove.length === 0) {
-                 await api.request('PUT', `/contents/${newName}/.gitkeep`, credentials, { message: `feat: Create folder '${newName}'`, content: '' });
+                 await githubApi.request('PUT', `/contents/${newName}/.gitkeep`, githubToken, { message: `feat: Create folder '${newName}'`, content: '', branch: GITHUB_BRANCH });
             } else {
                  for (const file of filesToMove) {
-                    const fileData = await api.request('GET', file.url.replace('https://api.github.com/repos', '').replace(/[^/]+\/[^/]+/, ''), credentials);
-                    await api.request('PUT', `/contents/${newName}/${file.name}`, credentials, { message: `refactor: Move ${file.name} to ${newName}`, content: fileData.content });
-                    await api.request('DELETE', `/contents/${file.path}`, credentials, { message: `refactor: Delete ${file.name} from ${oldName}`, sha: file.sha });
+                    const fileData = await githubApi.request('GET', file.url.replace('https://api.github.com', ''), githubToken);
+                    await githubApi.request('PUT', `/contents/${newName}/${file.name}`, githubToken, { message: `refactor: Move ${file.name} to ${newName}`, content: fileData.content, branch: GITHUB_BRANCH });
+                    await githubApi.request('DELETE', `/contents/${file.path}`, githubToken, { message: `refactor: Delete ${file.name} from ${oldName}`, sha: file.sha, branch: GITHUB_BRANCH });
                 }
             }
 
@@ -527,7 +517,7 @@ const App = () => {
     };
 
     const handleImageUpload = async (files: FileList) => {
-        if (!credentials || !activeFolder) return;
+        if (!githubToken || !activeFolder) return;
 
         setIsUploading(true);
         let successfulUploads = 0;
@@ -541,23 +531,11 @@ const App = () => {
             try {
                 const content = await fileToBase64(file);
                 const path = `${activeFolder}/${file.name}`;
-
-                const response = await fetch('/.netlify/functions/upload', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${credentials}`,
-                    },
-                    body: JSON.stringify({
-                        path,
-                        content,
-                    }),
+                await githubApi.request('PUT', `/contents/${path}`, githubToken, {
+                    message: `feat: upload ${file.name}`,
+                    content: content,
+                    branch: GITHUB_BRANCH,
                 });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: response.statusText }));
-                    throw new Error(errorData.message);
-                }
 
                 successfulUploads++;
             } catch (error) {
@@ -578,14 +556,15 @@ const App = () => {
 
 
     const handleDeleteImage = async () => {
-        if (!credentials || !imageToDelete) return;
+        if (!githubToken || !imageToDelete) return;
         const image = imageToDelete;
         setImageToDelete(null); 
 
         try {
-            await api.request('DELETE', `/contents/${image.path}`, credentials, {
+            await githubApi.request('DELETE', `/contents/${image.path}`, githubToken, {
                 message: `feat: Delete image ${image.name}`,
                 sha: image.sha,
+                branch: GITHUB_BRANCH,
             });
             setImages(prev => prev.filter(img => img.sha !== image.sha));
             showNotification(`Đã xóa: ${image.name}`, 'success');
@@ -619,11 +598,11 @@ const App = () => {
         }
     };
 
-    if (isLoading && !isLoggedIn) {
+    if (isLoading) {
         return <div className="loader" aria-label="Đang kết nối..."></div>;
     }
     
-    if (!isLoggedIn) {
+    if (!githubToken) {
         return <Login onLogin={handleLogin} loginError={loginError} />;
     }
 
@@ -660,10 +639,13 @@ const App = () => {
                             </li>
                         ))}
                     </ul>
-                    <form onSubmit={handleAddFolder} className="add-folder-form">
-                        <input name="folderName" type="text" placeholder="Tên thư mục mới..." className="add-folder-input" aria-label="Tên thư mục mới" required />
-                        <button type="submit" className="add-folder-button" aria-label="Thêm thư mục">+</button>
-                    </form>
+                    <div className="sidebar-footer">
+                        <form onSubmit={handleAddFolder} className="add-folder-form">
+                            <input name="folderName" type="text" placeholder="Tên thư mục mới..." className="add-folder-input" aria-label="Tên thư mục mới" required />
+                            <button type="submit" className="add-folder-button" aria-label="Thêm thư mục">+</button>
+                        </form>
+                         <button onClick={handleLogout} className="logout-button">Đăng xuất</button>
+                    </div>
                 </aside>
                 <section className="main-content">
                     {activeFolder ? (

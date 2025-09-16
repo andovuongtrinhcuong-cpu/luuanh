@@ -183,10 +183,15 @@ h1 {
   outline: none;
 }
 
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+}
+
 .add-folder-form {
   display: flex;
   gap: 0.5rem;
-  margin-top: 1rem;
 }
 
 .add-folder-input {
@@ -211,6 +216,25 @@ h1 {
 
 .add-folder-button:hover {
   background-color: var(--primary-variant-color);
+}
+
+.logout-button {
+    width: 100%;
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--error-color);
+    background-color: transparent;
+    color: var(--error-color);
+    font-weight: bold;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.logout-button:hover {
+    background-color: var(--error-color);
+    color: #fff;
 }
 
 .main-content {
@@ -388,7 +412,7 @@ h1 {
   padding: 2.5rem;
   border-radius: 8px;
   width: 100%;
-  max-width: 400px;
+  max-width: 450px;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -423,6 +447,7 @@ h1 {
 .error-message {
     color: var(--error-color);
     margin-top: 1rem;
+    word-break: break-word;
 }
 
 .notification {
