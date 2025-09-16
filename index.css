@@ -73,6 +73,24 @@ h1 {
   flex-grow: 1;
 }
 
+/* Custom scrollbar for folder list */
+.folder-list::-webkit-scrollbar {
+  width: 8px;
+}
+.folder-list::-webkit-scrollbar-track {
+  background: var(--surface-color);
+  border-radius: 4px;
+}
+.folder-list::-webkit-scrollbar-thumb {
+  background-color: #555;
+  border-radius: 4px;
+  border: 2px solid var(--surface-color);
+}
+.folder-list::-webkit-scrollbar-thumb:hover {
+  background-color: #777;
+}
+
+
 .folder-item {
   padding: 0.75rem;
   margin-bottom: 0.5rem;
@@ -80,6 +98,7 @@ h1 {
   cursor: pointer;
   transition: background-color 0.2s ease;
   word-break: break-word;
+  font-size: 0.9rem; /* Adjusted font size */
 }
 
 .folder-item:hover {
