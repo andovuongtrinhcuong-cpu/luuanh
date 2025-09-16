@@ -267,6 +267,26 @@ h1 {
   outline: 1px solid var(--primary-color);
 }
 
+.search-input {
+  margin-left: auto;
+  background-color: var(--background-color);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  transition: border-color 0.2s;
+}
+
+.search-input::placeholder {
+    color: #888;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
 .gallery-container {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
