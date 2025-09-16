@@ -333,7 +333,7 @@ const App = () => {
 
     return (
         <>
-            <header><h1>GitHub Image Hoster</h1></header>
+            <header><h1>Lưu Ảnh</h1></header>
             <main className="app-container">
                 <aside className="sidebar">
                     <h2>Thư mục</h2>
