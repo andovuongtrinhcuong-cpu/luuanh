@@ -24,13 +24,14 @@ const fileToBase64 = (file: File): Promise<string> => {
 
 // --- API Helper for Netlify Functions ---
 const api = {
-    async request(method: string, githubPath: string, credentials: { user: string; pass: string }, body?: any) {
+    async request(method: string, githubPath: string, token: string, body?: any) {
         const response = await fetch('/.netlify/functions/api', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
             body: JSON.stringify({
-                username: credentials.user,
-                password: credentials.pass,
                 method,
                 githubPath,
                 body,
@@ -225,7 +226,7 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children }: {
 
 const App = () => {
     const [loginError, setLoginError] = useState<string | null>(null);
-    const [credentials, setCredentials] = useState<{ user: string; pass: string } | null>(null);
+    const [credentials, setCredentials] = useState<string | null>(null);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
 
     const [folders, setFolders] = useState<string[]>([]);
@@ -251,19 +252,24 @@ const App = () => {
         setIsLoading(true);
         setLoginError(null);
         try {
-            // Test request to validate credentials
-            await api.request('GET', '/contents/', { user, pass });
+            const response = await fetch('/.netlify/functions/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user, pass }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: 'Đăng nhập thất bại.' }));
+                throw new Error(errorData.message);
+            }
+
+            const { token } = await response.json();
             
-            // On success
-            const newCredentials = { user, pass };
-            setCredentials(newCredentials);
+            setCredentials(token);
             setIsLoggedIn(true);
-            sessionStorage.setItem('app_user', user);
-            sessionStorage.setItem('app_pass', pass);
+            sessionStorage.setItem('app_token', token);
         } catch (error) {
-            // On failure
-            sessionStorage.removeItem('app_user');
-            sessionStorage.removeItem('app_pass');
+            sessionStorage.removeItem('app_token');
             setLoginError(`Đăng nhập thất bại: ${(error as Error).message}.`);
             setCredentials(null);
             setIsLoggedIn(false);
@@ -272,17 +278,29 @@ const App = () => {
         }
     }, []);
     
-    // Check session on initial load
     useEffect(() => {
-        const savedUser = sessionStorage.getItem('app_user');
-        const savedPass = sessionStorage.getItem('app_pass');
+        const savedToken = sessionStorage.getItem('app_token');
 
-        if (savedUser && savedPass) {
-            handleLogin(savedUser, savedPass);
+        const verifyAndLogin = async (token: string) => {
+            setIsLoading(true);
+            try {
+                await api.request('GET', '/contents/', token);
+                setCredentials(token);
+                setIsLoggedIn(true);
+            } catch (error) {
+                sessionStorage.removeItem('app_token');
+                console.error("Token verification failed", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        if (savedToken) {
+            verifyAndLogin(savedToken);
         } else {
             setIsLoading(false);
         }
-    }, [handleLogin]);
+    }, []);
 
     useEffect(() => {
         renameInputRef.current?.focus();
@@ -526,10 +544,11 @@ const App = () => {
 
                 const response = await fetch('/.netlify/functions/upload', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${credentials}`,
+                    },
                     body: JSON.stringify({
-                        username: credentials.user,
-                        password: credentials.pass,
                         path,
                         content,
                     }),
