@@ -1,51 +1,48 @@
-const fetch = require('node-fetch');
+const fetch = require("node-fetch");
 
-// This function handles the file upload.
-// It authenticates using app-specific credentials and uses a backend GitHub token.
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
   }
 
   try {
-    const { username, password, path, content } = JSON.parse(event.body);
+    const { username, password, filename, content } = JSON.parse(event.body);
 
-    const { APP_USER, APP_PASS, GITHUB_TOKEN, GITHUB_REPO } = process.env;
+    // ✅ Lấy danh sách user/pass từ ENV
+    const users = JSON.parse(process.env.APP_USERS || "[]");
 
-    if (!APP_USER || !APP_PASS || !GITHUB_TOKEN || !GITHUB_REPO) {
-        return { statusCode: 500, body: JSON.stringify({ message: 'Server is not configured correctly.' }) };
+    // Kiểm tra đăng nhập
+    const valid = users.some(
+      (u) => u.user === username && u.pass === password
+    );
+
+    if (!valid) {
+      return { statusCode: 401, body: "Unauthorized" };
     }
 
-    // Authenticate the user
-    if (username !== APP_USER || password !== APP_PASS) {
-      return { statusCode: 401, body: JSON.stringify({ message: 'Unauthorized' }) };
-    }
+    // ✅ Token GitHub (ẩn trong Netlify)
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    const REPO = "andovuongtrinhcuong-cpu/luuanh"; // 👉 sửa tên repo của bạn
+    const BRANCH = "main";
 
-    const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`;
+    const url = `https://api.github.com/repos/${REPO}/contents/${filename}`;
 
     const response = await fetch(url, {
-      method: 'PUT',
+      method: "PUT",
       headers: {
         Authorization: `token ${GITHUB_TOKEN}`,
-        Accept: 'application/vnd.github.v3+json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        message: `feat: Add image ${path.split('/').pop()}`,
-        content: content, // base64 encoded
+        message: `upload ${filename}`,
+        content: content, // base64 encode
+        branch: BRANCH,
       }),
     });
-    
+
     const data = await response.json();
-
-    if (!response.ok) {
-        return { statusCode: response.status, body: JSON.stringify(data) };
-    }
-
-    return {
-      statusCode: 201,
-      body: JSON.stringify(data),
-    };
+    return { statusCode: 200, body: JSON.stringify(data) };
   } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ message: err.message }) };
+    return { statusCode: 500, body: err.message };
   }
 };
